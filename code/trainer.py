@@ -476,7 +476,7 @@ class condGANTrainer(object):
                             if test_captions is None:
                                 continue
 
-                            match_idx = image_idx // 10
+                            match_idx = image_idx % len(test_captions)
                             if match_idx >= len(test_captions):
                                 continue
 
@@ -488,8 +488,8 @@ class condGANTrainer(object):
                                 mismatch_indices = [random.choice(mismatch_indices)
                                                     for _ in range(99)]
 
-                            caption_pool = [test_captions[match_idx]]
-                            caption_pool += [test_captions[i] for i in mismatch_indices]
+                            caption_pool = [test_captions[match_idx][0]]  
+                            caption_pool += [test_captions[i][0] for i in mismatch_indices]
 
                             img = Image.open(image_path).convert('RGB')
                             img = img.resize((299, 299), Image.BILINEAR)
