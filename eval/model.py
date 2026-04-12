@@ -39,17 +39,18 @@ class RNN_ENCODER(nn.Module):
     def define_module(self):
         self.encoder = nn.Embedding(self.ntoken, self.ninput)
         self.drop = nn.Dropout(self.drop_prob)
+        rnn_drop_prob = self.drop_prob if self.nlayers > 1 else 0
         if self.rnn_type == 'LSTM':
             # dropout: If non-zero, introduces a dropout layer on
             # the outputs of each RNN layer except the last layer
             self.rnn = nn.LSTM(self.ninput, self.nhidden,
                                self.nlayers, batch_first=True,
-                               dropout=self.drop_prob,
+                               dropout=rnn_drop_prob,
                                bidirectional=self.bidirectional)
         elif self.rnn_type == 'GRU':
             self.rnn = nn.GRU(self.ninput, self.nhidden,
                               self.nlayers, batch_first=True,
-                              dropout=self.drop_prob,
+                              dropout=rnn_drop_prob,
                               bidirectional=self.bidirectional)
         else:
             raise NotImplementedError
@@ -178,10 +179,7 @@ class CA_NET(nn.Module):
 
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        if cfg.CUDA:
-            eps = torch.cuda.FloatTensor(std.size()).normal_()
-        else:
-            eps = torch.FloatTensor(std.size()).normal_()
+        eps = torch.randn_like(std)
         return eps.mul(std).add_(mu)
 
     def forward(self, text_embedding):
