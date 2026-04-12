@@ -428,6 +428,114 @@ class condGANTrainer(object):
                             fullpath = '%s_s%d.png' % (s_tmp, k)
                             im.save(fullpath)
 
+            if cfg.B_VALIDATION is True:
+                import glob
+                import pickle
+                import random
+                import torch.nn.functional as F
+
+                img_encoder_path = cfg.TRAIN.NET_E.replace('text_encoder', 'image_encoder')
+                image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
+                state_dict = torch.load(img_encoder_path,
+                                        map_location=lambda storage, loc: storage)
+                image_encoder.load_state_dict(state_dict)
+                image_encoder.eval()
+                if cfg.CUDA:
+                    image_encoder = image_encoder.cuda()
+
+                test_captions = getattr(self, 'test_captions', None)
+                if test_captions is None and \
+                        hasattr(self.data_loader, 'dataset') and \
+                        hasattr(self.data_loader.dataset, 'captions'):
+                    test_captions = self.data_loader.dataset.captions
+
+                if test_captions is None:
+                    captions_path = os.path.join(cfg.DATA_DIR, 'captions.pickle')
+                    with open(captions_path, 'rb') as f:
+                        cap_data = pickle.load(f, encoding='latin1')
+                    if isinstance(cap_data, (list, tuple)):
+                        if len(cap_data) > 2 and isinstance(cap_data[2], list):
+                            test_captions = cap_data[2]
+                        elif len(cap_data) > 1 and isinstance(cap_data[1], list):
+                            test_captions = cap_data[1]
+                        elif len(cap_data) > 0 and isinstance(cap_data[0], list):
+                            test_captions = cap_data[0]
+
+                if test_captions is not None:
+                    self.test_captions = test_captions
+
+                image_paths = glob.glob('%s/single/**/*.png' % save_dir, recursive=True)
+                image_paths += glob.glob('%s/single/**/*.jpg' % save_dir, recursive=True)
+                image_paths = sorted(image_paths)
+
+                R_count = 0
+                count = 0
+                with torch.no_grad():
+                    for image_idx, image_path in enumerate(image_paths):
+                        try:
+                            if test_captions is None:
+                                continue
+
+                            match_idx = image_idx // 10
+                            if match_idx >= len(test_captions):
+                                continue
+
+                            mismatch_indices = [i for i in range(len(test_captions))
+                                                if i != match_idx]
+                            if len(mismatch_indices) >= 99:
+                                mismatch_indices = random.sample(mismatch_indices, 99)
+                            else:
+                                mismatch_indices = [random.choice(mismatch_indices)
+                                                    for _ in range(99)]
+
+                            caption_pool = [test_captions[match_idx]]
+                            caption_pool += [test_captions[i] for i in mismatch_indices]
+
+                            img = Image.open(image_path).convert('RGB')
+                            img = img.resize((299, 299), Image.BILINEAR)
+                            img = np.asarray(img).astype(np.float32)
+                            img = (img / 255.0 - 0.5) / 0.5
+                            img = torch.from_numpy(np.transpose(img, (2, 0, 1))).unsqueeze(0)
+                            if cfg.CUDA:
+                                img = img.cuda()
+
+                            _, image_feat = image_encoder(img)
+                            image_feat = F.normalize(image_feat, dim=1)
+
+                            sims = []
+                            for cap in caption_pool:
+                                cap = cap[:cfg.TEXT.WORDS_NUM]
+                                cap_len = len(cap)
+                                if cap_len == 0:
+                                    sims.append(-1.0)
+                                    continue
+
+                                cap_array = np.zeros((1, cfg.TEXT.WORDS_NUM), dtype='int64')
+                                cap_array[0, :cap_len] = cap
+                                cap_tensor = torch.from_numpy(cap_array)
+                                cap_len_tensor = torch.LongTensor([cap_len])
+                                if cfg.CUDA:
+                                    cap_tensor = cap_tensor.cuda()
+                                    cap_len_tensor = cap_len_tensor.cuda()
+
+                                hidden = text_encoder.init_hidden(1)
+                                _, sent_emb = text_encoder(cap_tensor,
+                                                           cap_len_tensor,
+                                                           hidden)
+                                sent_emb = F.normalize(sent_emb, dim=1)
+                                sim = F.cosine_similarity(image_feat, sent_emb)
+                                sims.append(sim.item())
+
+                            if len(sims) > 0 and int(np.argmax(sims)) == 0:
+                                R_count += 1
+                            count += 1
+                        except Exception:
+                            continue
+
+                if count == 0:
+                    count = 1
+                print('R-precision: %.4f' % (R_count / count))
+
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
             print('Error: the path for morels is not found!')
