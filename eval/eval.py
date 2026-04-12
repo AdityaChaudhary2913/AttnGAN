@@ -9,7 +9,6 @@ import numpy as np
 from PIL import Image
 import torch.onnx
 from datetime import datetime
-from torch.autograd import Variable
 from miscc.config import cfg
 from miscc.utils import build_super_images2
 from model import RNN_ENCODER, G_NET
@@ -54,9 +53,9 @@ def generate(caption, wordtoix, ixtoword, text_encoder, netG, blob_service, copi
     batch_size = captions.shape[0]
 
     nz = cfg.GAN.Z_DIM
-    captions = Variable(torch.from_numpy(captions), volatile=True)
-    cap_lens = Variable(torch.from_numpy(cap_lens), volatile=True)
-    noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
+    captions = torch.from_numpy(captions)
+    cap_lens = torch.from_numpy(cap_lens)
+    noise = torch.FloatTensor(batch_size, nz)
 
     if cfg.CUDA:
         captions = captions.cuda()

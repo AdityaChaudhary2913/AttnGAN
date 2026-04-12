@@ -4,7 +4,6 @@ from six.moves import range
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 
 from PIL import Image
@@ -146,9 +145,9 @@ class condGANTrainer(object):
 
     def prepare_labels(self):
         batch_size = self.batch_size
-        real_labels = Variable(torch.FloatTensor(batch_size).fill_(1))
-        fake_labels = Variable(torch.FloatTensor(batch_size).fill_(0))
-        match_labels = Variable(torch.LongTensor(range(batch_size)))
+        real_labels = torch.ones(batch_size)
+        fake_labels = torch.zeros(batch_size)
+        match_labels = torch.arange(batch_size).long()
         if cfg.CUDA:
             real_labels = real_labels.cuda()
             fake_labels = fake_labels.cuda()
@@ -223,8 +222,8 @@ class condGANTrainer(object):
 
         batch_size = self.batch_size
         nz = cfg.GAN.Z_DIM
-        noise = Variable(torch.FloatTensor(batch_size, nz))
-        fixed_noise = Variable(torch.FloatTensor(batch_size, nz).normal_(0, 1))
+        noise = torch.FloatTensor(batch_size, nz)
+        fixed_noise = torch.FloatTensor(batch_size, nz).normal_(0, 1)
         if cfg.CUDA:
             noise, fixed_noise = noise.cuda(), fixed_noise.cuda()
 
@@ -242,7 +241,7 @@ class condGANTrainer(object):
                 ######################################################
                 # (1) Prepare training data and Compute text embeddings
                 ######################################################
-                data = data_iter.next()
+                data = next(data_iter)
                 imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
 
                 hidden = text_encoder.init_hidden(batch_size)
@@ -274,7 +273,7 @@ class condGANTrainer(object):
                     errD.backward()
                     optimizersD[i].step()
                     errD_total += errD
-                    D_logs += 'errD%d: %.2f ' % (i, errD.data[0])
+                    D_logs += 'errD%d: %.2f ' % (i, errD.item())
 
                 #######################################################
                 # (4) Update G network: maximize log(D(G(z)))
@@ -291,12 +290,12 @@ class condGANTrainer(object):
                                    words_embs, sent_emb, match_labels, cap_lens, class_ids)
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
-                G_logs += 'kl_loss: %.2f ' % kl_loss.data[0]
+                G_logs += 'kl_loss: %.2f ' % kl_loss.item()
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
                 for p, avg_p in zip(netG.parameters(), avg_param_G):
-                    avg_p.mul_(0.999).add_(0.001, p.data)
+                    avg_p.mul_(0.999).add_(p.data, alpha=0.001)
 
                 if gen_iterations % 100 == 0:
                     print(D_logs + '\n' + G_logs)
@@ -318,7 +317,7 @@ class condGANTrainer(object):
             print('''[%d/%d][%d]
                   Loss_D: %.2f Loss_G: %.2f Time: %.2fs'''
                   % (epoch, self.max_epoch, self.num_batches,
-                     errD_total.data[0], errG_total.data[0],
+                                         errD_total.item(), errG_total.item(),
                      end_t - start_t))
 
             if epoch % cfg.TRAIN.SNAPSHOT_INTERVAL == 0:  # and epoch != 0:
@@ -370,8 +369,7 @@ class condGANTrainer(object):
 
             batch_size = self.batch_size
             nz = cfg.GAN.Z_DIM
-            noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
-            noise = noise.cuda()
+            noise = torch.FloatTensor(batch_size, nz).cuda()
 
             model_dir = cfg.TRAIN.NET_G
             state_dict = \
@@ -387,47 +385,48 @@ class condGANTrainer(object):
 
             cnt = 0
 
-            for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
-                for step, data in enumerate(self.data_loader, 0):
-                    cnt += batch_size
-                    if step % 100 == 0:
-                        print('step: ', step)
-                    # if step > 50:
-                    #     break
+            with torch.no_grad():
+                for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+                    for step, data in enumerate(self.data_loader, 0):
+                        cnt += batch_size
+                        if step % 100 == 0:
+                            print('step: ', step)
+                        # if step > 50:
+                        #     break
 
-                    imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
+                        imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
 
-                    hidden = text_encoder.init_hidden(batch_size)
-                    # words_embs: batch_size x nef x seq_len
-                    # sent_emb: batch_size x nef
-                    words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
-                    words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-                    mask = (captions == 0)
-                    num_words = words_embs.size(2)
-                    if mask.size(1) > num_words:
-                        mask = mask[:, :num_words]
+                        hidden = text_encoder.init_hidden(batch_size)
+                        # words_embs: batch_size x nef x seq_len
+                        # sent_emb: batch_size x nef
+                        words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
+                        words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
+                        mask = (captions == 0)
+                        num_words = words_embs.size(2)
+                        if mask.size(1) > num_words:
+                            mask = mask[:, :num_words]
 
-                    #######################################################
-                    # (2) Generate fake images
-                    ######################################################
-                    noise.data.normal_(0, 1)
-                    fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
-                    for j in range(batch_size):
-                        s_tmp = '%s/single/%s' % (save_dir, keys[j])
-                        folder = s_tmp[:s_tmp.rfind('/')]
-                        if not os.path.isdir(folder):
-                            print('Make a new folder: ', folder)
-                            mkdir_p(folder)
-                        k = -1
-                        # for k in range(len(fake_imgs)):
-                        im = fake_imgs[k][j].data.cpu().numpy()
-                        # [-1, 1] --> [0, 255]
-                        im = (im + 1.0) * 127.5
-                        im = im.astype(np.uint8)
-                        im = np.transpose(im, (1, 2, 0))
-                        im = Image.fromarray(im)
-                        fullpath = '%s_s%d.png' % (s_tmp, k)
-                        im.save(fullpath)
+                        #######################################################
+                        # (2) Generate fake images
+                        ######################################################
+                        noise.data.normal_(0, 1)
+                        fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
+                        for j in range(batch_size):
+                            s_tmp = '%s/single/%s' % (save_dir, keys[j])
+                            folder = s_tmp[:s_tmp.rfind('/')]
+                            if not os.path.isdir(folder):
+                                print('Make a new folder: ', folder)
+                                mkdir_p(folder)
+                            k = -1
+                            # for k in range(len(fake_imgs)):
+                            im = fake_imgs[k][j].data.cpu().numpy()
+                            # [-1, 1] --> [0, 255]
+                            im = (im + 1.0) * 127.5
+                            im = im.astype(np.uint8)
+                            im = np.transpose(im, (1, 2, 0))
+                            im = Image.fromarray(im)
+                            fullpath = '%s_s%d.png' % (s_tmp, k)
+                            im.save(fullpath)
 
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
@@ -463,14 +462,13 @@ class condGANTrainer(object):
 
                 batch_size = captions.shape[0]
                 nz = cfg.GAN.Z_DIM
-                captions = Variable(torch.from_numpy(captions), volatile=True)
-                cap_lens = Variable(torch.from_numpy(cap_lens), volatile=True)
+                captions = torch.from_numpy(captions)
+                cap_lens = torch.from_numpy(cap_lens)
 
                 captions = captions.cuda()
                 cap_lens = cap_lens.cuda()
                 for i in range(1):  # 16
-                    noise = Variable(torch.FloatTensor(batch_size, nz), volatile=True)
-                    noise = noise.cuda()
+                    noise = torch.FloatTensor(batch_size, nz).cuda()
                     #######################################################
                     # (1) Extract text embeddings
                     ######################################################

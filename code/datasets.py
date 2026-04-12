@@ -10,7 +10,6 @@ from miscc.config import cfg
 
 import torch
 import torch.utils.data as data
-from torch.autograd import Variable
 import torchvision.transforms as transforms
 
 import os
@@ -36,9 +35,9 @@ def prepare_data(data):
     for i in range(len(imgs)):
         imgs[i] = imgs[i][sorted_cap_indices]
         if cfg.CUDA:
-            real_imgs.append(Variable(imgs[i]).cuda())
+            real_imgs.append(imgs[i].cuda())
         else:
-            real_imgs.append(Variable(imgs[i]))
+            real_imgs.append(imgs[i])
 
     captions = captions[sorted_cap_indices].squeeze()
     class_ids = class_ids[sorted_cap_indices].numpy()
@@ -46,11 +45,10 @@ def prepare_data(data):
     keys = [keys[i] for i in sorted_cap_indices.numpy()]
     # print('keys', type(keys), keys[-1])  # list
     if cfg.CUDA:
-        captions = Variable(captions).cuda()
-        sorted_cap_lens = Variable(sorted_cap_lens).cuda()
+        captions = captions.cuda()
+        sorted_cap_lens = sorted_cap_lens.cuda()
     else:
-        captions = Variable(captions)
-        sorted_cap_lens = Variable(sorted_cap_lens)
+        pass
 
     return [real_imgs, captions, sorted_cap_lens,
             class_ids, keys]
@@ -80,7 +78,7 @@ def get_imgs(img_path, imsize, bbox=None,
         for i in range(cfg.TREE.BRANCH_NUM):
             # print(imsize[i])
             if i < (cfg.TREE.BRANCH_NUM - 1):
-                re_img = transforms.Scale(imsize[i])(img)
+                re_img = transforms.Resize(imsize[i])(img)
             else:
                 re_img = img
             ret.append(normalize(re_img))
@@ -133,7 +131,7 @@ class TextDataset(data.Dataset):
         #
         filename_bbox = {img_file[:-4]: [] for img_file in filenames}
         numImgs = len(filenames)
-        for i in xrange(0, numImgs):
+        for i in range(0, numImgs):
             # bbox = [x-left, y-top, width, height]
             bbox = df_bounding_boxes.iloc[i][1:].tolist()
 
@@ -146,8 +144,8 @@ class TextDataset(data.Dataset):
         all_captions = []
         for i in range(len(filenames)):
             cap_path = '%s/text/%s.txt' % (data_dir, filenames[i])
-            with open(cap_path, "r") as f:
-                captions = f.read().decode('utf8').split('\n')
+            with open(cap_path, "r", encoding='utf8') as f:
+                captions = f.read().split('\n')
                 cnt = 0
                 for cap in captions:
                     if len(cap) == 0:

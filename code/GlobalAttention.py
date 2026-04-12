@@ -5,9 +5,9 @@ based.
 H_1 H_2 H_3 ... H_n
   q   q   q       q
     |  |   |       |
-      \ |   |      /
+    |   |      /
               .....
-          \   |  /
+            |  /
                   a
 Constructs a unit mapping.
 $$(H_1 + H_n, q) => (a)$$

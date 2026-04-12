@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-from torch.autograd import Variable
 from torchvision import models
 import torch.utils.model_zoo as model_zoo
 import torch.nn.functional as F
@@ -122,13 +121,10 @@ class RNN_ENCODER(nn.Module):
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
         if self.rnn_type == 'LSTM':
-            return (Variable(weight.new(self.nlayers * self.num_directions,
-                                        bsz, self.nhidden).zero_()),
-                    Variable(weight.new(self.nlayers * self.num_directions,
-                                        bsz, self.nhidden).zero_()))
+            return (weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_(),
+                    weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_())
         else:
-            return Variable(weight.new(self.nlayers * self.num_directions,
-                                       bsz, self.nhidden).zero_())
+            return weight.new(self.nlayers * self.num_directions, bsz, self.nhidden).zero_()
 
     def forward(self, captions, cap_lens, hidden, mask=None):
         # input: torch.LongTensor of size batch x n_steps
@@ -290,7 +286,6 @@ class CA_NET(nn.Module):
             eps = torch.cuda.FloatTensor(std.size()).normal_()
         else:
             eps = torch.FloatTensor(std.size()).normal_()
-        eps = Variable(eps)
         return eps.mul(std).add_(mu)
 
     def forward(self, text_embedding):

@@ -24,7 +24,6 @@ from PIL import Image
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.autograd import Variable
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 
@@ -50,10 +49,10 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
           labels, optimizer, epoch, ixtoword, image_dir):
     cnn_model.train()
     rnn_model.train()
-    s_total_loss0 = 0
-    s_total_loss1 = 0
-    w_total_loss0 = 0
-    w_total_loss1 = 0
+    s_total_loss0 = 0.0
+    s_total_loss1 = 0.0
+    w_total_loss0 = 0.0
+    w_total_loss1 = 0.0
     count = (epoch + 1) * len(dataloader)
     start_time = time.time()
     for step, data in enumerate(dataloader, 0):
@@ -79,32 +78,32 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
 
         w_loss0, w_loss1, attn_maps = words_loss(words_features, words_emb, labels,
                                                  cap_lens, class_ids, batch_size)
-        w_total_loss0 += w_loss0.data
-        w_total_loss1 += w_loss1.data
+        w_total_loss0 += w_loss0.item()
+        w_total_loss1 += w_loss1.item()
         loss = w_loss0 + w_loss1
 
         s_loss0, s_loss1 = \
             sent_loss(sent_code, sent_emb, labels, class_ids, batch_size)
         loss += s_loss0 + s_loss1
-        s_total_loss0 += s_loss0.data
-        s_total_loss1 += s_loss1.data
+        s_total_loss0 += s_loss0.item()
+        s_total_loss1 += s_loss1.item()
         #
         loss.backward()
         #
         # `clip_grad_norm` helps prevent
         # the exploding gradient problem in RNNs / LSTMs.
-        torch.nn.utils.clip_grad_norm(rnn_model.parameters(),
-                                      cfg.TRAIN.RNN_GRAD_CLIP)
+        torch.nn.utils.clip_grad_norm_(rnn_model.parameters(),
+                                       cfg.TRAIN.RNN_GRAD_CLIP)
         optimizer.step()
 
         if step % UPDATE_INTERVAL == 0:
             count = epoch * len(dataloader) + step
 
-            s_cur_loss0 = s_total_loss0[0] / UPDATE_INTERVAL
-            s_cur_loss1 = s_total_loss1[0] / UPDATE_INTERVAL
+            s_cur_loss0 = s_total_loss0 / UPDATE_INTERVAL
+            s_cur_loss1 = s_total_loss1 / UPDATE_INTERVAL
 
-            w_cur_loss0 = w_total_loss0[0] / UPDATE_INTERVAL
-            w_cur_loss1 = w_total_loss1[0] / UPDATE_INTERVAL
+            w_cur_loss0 = w_total_loss0 / UPDATE_INTERVAL
+            w_cur_loss1 = w_total_loss1 / UPDATE_INTERVAL
 
             elapsed = time.time() - start_time
             print('| epoch {:3d} | {:5d}/{:5d} batches | ms/batch {:5.2f} | '
@@ -114,10 +113,10 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
                           elapsed * 1000. / UPDATE_INTERVAL,
                           s_cur_loss0, s_cur_loss1,
                           w_cur_loss0, w_cur_loss1))
-            s_total_loss0 = 0
-            s_total_loss1 = 0
-            w_total_loss0 = 0
-            w_total_loss1 = 0
+            s_total_loss0 = 0.0
+            s_total_loss1 = 0.0
+            w_total_loss0 = 0.0
+            w_total_loss1 = 0.0
             start_time = time.time()
             # attention Maps
             img_set, _ = \
@@ -133,8 +132,8 @@ def train(dataloader, cnn_model, rnn_model, batch_size,
 def evaluate(dataloader, cnn_model, rnn_model, batch_size):
     cnn_model.eval()
     rnn_model.eval()
-    s_total_loss = 0
-    w_total_loss = 0
+    s_total_loss = 0.0
+    w_total_loss = 0.0
     for step, data in enumerate(dataloader, 0):
         real_imgs, captions, cap_lens, \
                 class_ids, keys = prepare_data(data)
@@ -148,17 +147,17 @@ def evaluate(dataloader, cnn_model, rnn_model, batch_size):
 
         w_loss0, w_loss1, attn = words_loss(words_features, words_emb, labels,
                                             cap_lens, class_ids, batch_size)
-        w_total_loss += (w_loss0 + w_loss1).data
+        w_total_loss += (w_loss0 + w_loss1).item()
 
         s_loss0, s_loss1 = \
             sent_loss(sent_code, sent_emb, labels, class_ids, batch_size)
-        s_total_loss += (s_loss0 + s_loss1).data
+        s_total_loss += (s_loss0 + s_loss1).item()
 
         if step == 50:
             break
 
-    s_cur_loss = s_total_loss[0] / step
-    w_cur_loss = w_total_loss[0] / step
+    s_cur_loss = s_total_loss / step
+    w_cur_loss = w_total_loss / step
 
     return s_cur_loss, w_cur_loss
 
@@ -167,7 +166,7 @@ def build_models():
     # build model ############################################################
     text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
-    labels = Variable(torch.LongTensor(range(batch_size)))
+    labels = torch.arange(batch_size).long()
     start_epoch = 0
     if cfg.TRAIN.NET_E != '':
         state_dict = torch.load(cfg.TRAIN.NET_E)
@@ -235,7 +234,7 @@ if __name__ == "__main__":
     imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM-1))
     batch_size = cfg.TRAIN.BATCH_SIZE
     image_transform = transforms.Compose([
-        transforms.Scale(int(imsize * 76 / 64)),
+        transforms.Resize(int(imsize * 76 / 64)),
         transforms.RandomCrop(imsize),
         transforms.RandomHorizontalFlip()])
     dataset = TextDataset(cfg.DATA_DIR, 'train',
