@@ -133,8 +133,9 @@ class RNN_ENCODER(nn.Module):
         emb = self.drop(self.encoder(captions))
         #
         # Returns: a PackedSequence object
-        cap_lens = cap_lens.data.tolist()
-        emb = pack_padded_sequence(emb, cap_lens, batch_first=True)
+        cap_lens = cap_lens.cpu()
+        emb = pack_padded_sequence(emb, cap_lens.tolist(),
+                                   batch_first=True, enforce_sorted=False)
         # #hidden and memory (num_layers * num_directions, batch, hidden_size):
         # tensor containing the initial hidden state for each element in batch.
         # #output (batch, seq_len, hidden_size * num_directions)
@@ -164,7 +165,7 @@ class CNN_ENCODER(nn.Module):
         else:
             self.nef = 256  # define a uniform ranker
 
-        model = models.inception_v3()
+        model = models.inception_v3(weights=None, init_weights=False)
         url = 'https://download.pytorch.org/models/inception_v3_google-1a9a5a14.pth'
         model.load_state_dict(model_zoo.load_url(url))
         for param in model.parameters():

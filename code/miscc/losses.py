@@ -49,7 +49,7 @@ def sent_loss(cnn_code, rnn_code, labels, class_ids,
     # --> batch_size x batch_size
     scores0 = scores0.squeeze()
     if class_ids is not None:
-        scores0.data.masked_fill_(masks, -float('inf'))
+        scores0 = scores0.masked_fill(masks.bool(), -float('inf'))
     scores1 = scores0.transpose(0, 1)
     if labels is not None:
         loss0 = nn.CrossEntropyLoss()(scores0, labels)
@@ -122,7 +122,7 @@ def words_loss(img_features, words_emb, labels,
 
     similarities = similarities * cfg.TRAIN.SMOOTH.GAMMA3
     if class_ids is not None:
-        similarities.data.masked_fill_(masks, -float('inf'))
+        similarities = similarities.masked_fill(masks.bool(), -float('inf'))
     similarities1 = similarities.transpose(0, 1)
     if labels is not None:
         loss0 = nn.CrossEntropyLoss()(similarities, labels)
@@ -180,7 +180,7 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
         else:
             g_loss = cond_errG
         errG_total += g_loss
-        # err_img = errG_total.data[0]
+        # err_img = errG_total.item()
         logs += 'g_loss%d: %.2f ' % (i, g_loss.item())
 
         # Ranking loss
@@ -193,13 +193,13 @@ def generator_loss(netsD, image_encoder, fake_imgs, real_labels,
                                              class_ids, batch_size)
             w_loss = (w_loss0 + w_loss1) * \
                 cfg.TRAIN.SMOOTH.LAMBDA
-            # err_words = err_words + w_loss.data[0]
+            # err_words = err_words + w_loss.item()
 
             s_loss0, s_loss1 = sent_loss(cnn_code, sent_emb,
                                          match_labels, class_ids, batch_size)
             s_loss = (s_loss0 + s_loss1) * \
                 cfg.TRAIN.SMOOTH.LAMBDA
-            # err_sent = err_sent + s_loss.data[0]
+            # err_sent = err_sent + s_loss.item()
 
             errG_total += w_loss + s_loss
             logs += 'w_loss: %.2f s_loss: %.2f ' % (w_loss.item(), s_loss.item())
