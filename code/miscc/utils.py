@@ -142,11 +142,14 @@ def build_super_images(real_imgs, captions, ixtoword,
                 one_map = row_beforeNorm[j]
                 one_map = (one_map - minVglobal) / (maxVglobal - minVglobal)
                 one_map *= 255
-                #
                 PIL_im = Image.fromarray(np.uint8(img))
-                PIL_att = Image.fromarray(np.uint8(one_map))
-                merged = \
-                    Image.new('RGBA', (vis_size, vis_size), (0, 0, 0, 0))
+                one_map_vis = np.uint8(one_map)
+                if one_map_vis.ndim == 3 and one_map_vis.shape[2] not in (1, 3, 4):
+                    one_map_vis = one_map_vis.mean(axis=2).astype(np.uint8)
+                if one_map_vis.ndim == 2:
+                    one_map_vis = np.stack([one_map_vis]*3, axis=2)
+                PIL_att = Image.fromarray(one_map_vis)
+                merged = Image.new('RGBA', (vis_size, vis_size), (0, 0, 0, 0))
                 mask = Image.new('L', (vis_size, vis_size), (210))
                 merged.paste(PIL_im, (0, 0))
                 merged.paste(PIL_att, (0, 0), mask)
