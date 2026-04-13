@@ -127,8 +127,6 @@ class condGANTrainer(object):
             image_encoder = image_encoder.cuda()
             if len(gpu_ids) > 1:
                 netG = nn.DataParallel(netG, device_ids=gpu_ids)
-                for i in range(len(netsD)):
-                    netsD[i] = nn.DataParallel(netsD[i], device_ids=gpu_ids)
             netG = netG.cuda()
             for i in range(len(netsD)):
                 netsD[i] = netsD[i].cuda()
@@ -193,9 +191,10 @@ class condGANTrainer(object):
                 lr_img = None
             attn_maps = attention_maps[i]
             att_sze = attn_maps.size(2)
-            img_set, _ = \
-                build_super_images(img, captions, self.ixtoword,
-                                   attn_maps, att_sze, lr_imgs=lr_img)
+            try:
+                img_set, _ = build_super_images(img, captions, self.ixtoword, attn_maps, att_sze, lr_imgs=lr_img)
+            except Exception:
+                img_set = None
             if img_set is not None:
                 im = Image.fromarray(img_set)
                 fullpath = '%s/G_%s_%d_%d.png'\
@@ -273,7 +272,7 @@ class condGANTrainer(object):
                 D_logs = ''
                 for i in range(len(netsD)):
                     netsD[i].zero_grad()
-                    errD = discriminator_loss(netsD[i], imgs[i], fake_imgs[i],
+                    errD = discriminator_loss(netsD[i], imgs[i], fake_imgs[i].detach(),
                                               sent_emb, real_labels, fake_labels)
                     # backward and update parameters
                     errD.backward()
