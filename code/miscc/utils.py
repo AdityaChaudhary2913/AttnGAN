@@ -162,6 +162,15 @@ def build_super_images(real_imgs, captions, ixtoword,
             #
             row_merge.append(merged)
             row_merge.append(middle_pad)
+        def to3ch(arr):
+            if arr.ndim == 2:
+                return np.stack([arr]*3, axis=2)
+            if arr.shape[2] == 1:
+                return np.concatenate([arr]*3, axis=2)
+            if arr.shape[2] == 3:
+                return arr
+            return arr.mean(axis=2, keepdims=True).repeat(3, axis=2).astype(arr.dtype)
+        row = [to3ch(r) for r in row]
         row = np.concatenate(row, 1)
         row_merge = np.concatenate(row_merge, 1)
         txt = text_map[i * FONT_MAX: (i + 1) * FONT_MAX]
