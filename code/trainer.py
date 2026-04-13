@@ -348,11 +348,12 @@ class condGANTrainer(object):
             im.save(fullpath)
 
     def sampling(self, split_dir):
-        if cfg.TRAIN.NET_G == '':
-            print('Error: the path for morels is not found!')
+        if cfg.TRAIN.NET_G == "":
+            print("Error: the path for morels is not found!")
         else:
-            if split_dir == 'test':
-                split_dir = 'valid'
+            if split_dir == "test":
+                split_dir = "valid"
+
             # Build and load the generator
             if cfg.GAN.B_DCGAN:
                 netG = G_DCGAN()
@@ -361,12 +362,13 @@ class condGANTrainer(object):
             netG.apply(weights_init)
             netG.cuda()
             netG.eval()
-            #
+
             text_encoder = RNN_ENCODER(self.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
-            state_dict = \
-                torch.load(cfg.TRAIN.NET_E, map_location=lambda storage, loc: storage)
+            state_dict = torch.load(
+                cfg.TRAIN.NET_E, map_location=lambda storage, loc: storage
+            )
             text_encoder.load_state_dict(state_dict)
-            print('Load text encoder from:', cfg.TRAIN.NET_E)
+            print("Load text encoder from:", cfg.TRAIN.NET_E)
             text_encoder = text_encoder.cuda()
             text_encoder.eval()
 
@@ -375,133 +377,137 @@ class condGANTrainer(object):
             noise = torch.FloatTensor(batch_size, nz).cuda()
 
             model_dir = cfg.TRAIN.NET_G
-            state_dict = \
-                torch.load(model_dir, map_location=lambda storage, loc: storage)
-            # state_dict = torch.load(cfg.TRAIN.NET_G)
+            state_dict = torch.load(model_dir, map_location=lambda storage, loc: storage)
             netG.load_state_dict(state_dict)
-            print('Load G from: ', model_dir)
+            print("Load G from: ", model_dir)
 
             # the path to save generated images
-            s_tmp = model_dir[:model_dir.rfind('.pth')]
-            save_dir = '%s/%s' % (s_tmp, split_dir)
+            s_tmp = model_dir[: model_dir.rfind(".pth")]
+            save_dir = "%s/%s" % (s_tmp, split_dir)
             mkdir_p(save_dir)
 
             cnt = 0
-            if cfg.B_VALIDATION is True:
+            R_count = 0
+            count = 0
+
+            # ── R-Precision setup ──────────────────────────────────────────────
+            if cfg.B_VALIDATION:
                 import pickle
                 import random
                 import torch.nn.functional as F
 
-                img_encoder_path = cfg.TRAIN.NET_E.replace('text_encoder', 'image_encoder')
+                img_encoder_path = cfg.TRAIN.NET_E.replace("text_encoder", "image_encoder")
                 image_encoder = CNN_ENCODER(cfg.TEXT.EMBEDDING_DIM)
-                state_dict = torch.load(img_encoder_path,
-                                        map_location=lambda storage, loc: storage)
-                image_encoder.load_state_dict(state_dict)
+                state_dict_ie = torch.load(
+                    img_encoder_path, map_location=lambda storage, loc: storage
+                )
+                image_encoder.load_state_dict(state_dict_ie)
                 image_encoder.eval()
                 if cfg.CUDA:
                     image_encoder = image_encoder.cuda()
 
-                R_count = 0
-                count = 0
-
-                captions_path = os.path.join(cfg.DATA_DIR, 'captions.pickle')
-                with open(captions_path, 'rb') as f:
-                    cap_data = pickle.load(f, encoding='latin1')
-                test_captions = cap_data[1]
+                # Pre-encode ALL test captions once
+                captions_path = os.path.join(cfg.DATA_DIR, "captions.pickle")
+                with open(captions_path, "rb") as f:
+                    cap_data = pickle.load(f, encoding="latin1")
+                test_captions = cap_data[1]  # index 1 = test split
 
                 test_sent_embs = []
+                print("Pre-encoding test captions for R-Precision...")
                 with torch.no_grad():
                     for i in range(len(test_captions)):
                         cap = test_captions[i]
                         if len(cap) > 0 and isinstance(cap[0], (list, tuple, np.ndarray)):
                             cap = cap[0]
-                        cap = list(cap)[:cfg.TEXT.WORDS_NUM]
+                        cap = list(cap)[: cfg.TEXT.WORDS_NUM]
                         cap_len = len(cap)
                         if cap_len == 0:
                             continue
-
-                        cap_array = np.zeros((1, cap_len), dtype='int64')
+                        cap_array = np.zeros((1, cap_len), dtype="int64")
                         cap_array[0, :cap_len] = cap
                         cap_tensor = torch.from_numpy(cap_array)
                         cap_len_tensor = torch.LongTensor([cap_len])
                         if cfg.CUDA:
                             cap_tensor = cap_tensor.cuda()
                             cap_len_tensor = cap_len_tensor.cuda()
-
                         hidden = text_encoder.init_hidden(1)
-                        _, sent_emb = text_encoder(cap_tensor, cap_len_tensor, hidden)
-                        sent_emb = F.normalize(sent_emb, dim=1)
-                        test_sent_embs.append(sent_emb)
+                        _, emb = text_encoder(cap_tensor, cap_len_tensor, hidden)
+                        emb = F.normalize(emb, dim=1)
+                        test_sent_embs.append(emb)
+                print(f"Encoded {len(test_sent_embs)} test captions.")
 
+            # ── Main generation loop ───────────────────────────────────────────
             with torch.no_grad():
-                for _ in range(1):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+                for _ in range(1):  # cfg.TEXT.CAPTIONS_PER_IMAGE
                     for step, data in enumerate(self.data_loader, 0):
                         cnt += batch_size
                         if step % 100 == 0:
-                            print('step: ', step)
-                        # if step > 50:
-                        #     break
+                            print("step: ", step)
 
                         imgs, captions, cap_lens, class_ids, keys = prepare_data(data)
 
                         hidden = text_encoder.init_hidden(batch_size)
-                        # words_embs: batch_size x nef x seq_len
-                        # sent_emb: batch_size x nef
                         words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
                         words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-                        mask = (captions == 0)
+                        mask = captions == 0
                         num_words = words_embs.size(2)
                         if mask.size(1) > num_words:
                             mask = mask[:, :num_words]
 
-                        #######################################################
-                        # (2) Generate fake images
-                        ######################################################
                         noise.data.normal_(0, 1)
                         fake_imgs, _, _, _ = netG(noise, sent_emb, words_embs, mask)
+
                         for j in range(batch_size):
-                            s_tmp = '%s/single/%s' % (save_dir, keys[j])
-                            folder = s_tmp[:s_tmp.rfind('/')]
+                            # ── Save image ─────────────────────────────────────
+                            s_tmp = "%s/single/%s" % (save_dir, keys[j])
+                            folder = s_tmp[: s_tmp.rfind("/")]
                             if not os.path.isdir(folder):
-                                print('Make a new folder: ', folder)
+                                print("Make a new folder: ", folder)
                                 mkdir_p(folder)
                             k = -1
-                            # for k in range(len(fake_imgs)):
                             im = fake_imgs[k][j].data.cpu().numpy()
-                            # [-1, 1] --> [0, 255]
                             im = (im + 1.0) * 127.5
                             im = im.astype(np.uint8)
                             im = np.transpose(im, (1, 2, 0))
                             im = Image.fromarray(im)
-                            fullpath = '%s_s%d.png' % (s_tmp, k)
+                            fullpath = "%s_s%d.png" % (s_tmp, k)
                             im.save(fullpath)
-                            if cfg.B_VALIDATION is True and len(test_sent_embs) > 0:
+
+                            # ── R-Precision ────────────────────────────────────
+                            if cfg.B_VALIDATION and len(test_sent_embs) > 0:
+                                import torch.nn.functional as F
+                                import random
+
+                                # Encode the generated image
                                 image_input = fake_imgs[-1][j].unsqueeze(0)
                                 _, image_feat = image_encoder(image_input)
                                 image_feat = F.normalize(image_feat, dim=1)
 
-                                match_idx = (step * batch_size + j) % len(test_sent_embs)
-                                mismatch_indices = [idx for idx in range(len(test_sent_embs))
-                                                    if idx != match_idx]
-                                if len(mismatch_indices) >= 99:
-                                    mismatch_indices = random.sample(mismatch_indices, 99)
-                                elif len(mismatch_indices) > 0:
-                                    mismatch_indices = [random.choice(mismatch_indices)
-                                                        for _ in range(99)]
-                                else:
-                                    mismatch_indices = []
+                                # ✅ TRUE match: the sentence embedding that
+                                # conditioned THIS image in this batch
+                                true_emb = F.normalize(sent_emb[j].unsqueeze(0), dim=1)
 
-                                sent_pool = [test_sent_embs[match_idx]]
-                                sent_pool += [test_sent_embs[idx] for idx in mismatch_indices]
+                                # Sample 99 random mismatched captions
+                                mismatch_indices = random.sample(
+                                    range(len(test_sent_embs)), min(99, len(test_sent_embs))
+                                )
+                                sent_pool = [true_emb] + [
+                                    test_sent_embs[idx] for idx in mismatch_indices
+                                ]
 
-                                sims = [F.cosine_similarity(image_feat, sent_emb).item()
-                                        for sent_emb in sent_pool]
-                                if len(sims) > 0 and int(np.argmax(sims)) == 0:
+                                sims = [
+                                    F.cosine_similarity(image_feat, s).item()
+                                    for s in sent_pool
+                                ]
+
+                                # Correct if true caption (index 0) scores highest
+                                if int(np.argmax(sims)) == 0:
                                     R_count += 1
                                 count += 1
 
-            if cfg.B_VALIDATION is True:
-                print('R-precision: %.4f' % (R_count / max(count, 1)))
+            if cfg.B_VALIDATION:
+                r_prec = R_count / max(count, 1)
+                print("R-precision: %.4f" % r_prec)
 
     def gen_example(self, data_dic):
         if cfg.TRAIN.NET_G == '':
