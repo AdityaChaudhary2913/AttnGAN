@@ -121,11 +121,17 @@ class condGANTrainer(object):
                     netsD[i].load_state_dict(state_dict)
         # ########################################################### #
         if cfg.CUDA:
+            gpu_ids = list(range(torch.cuda.device_count()))
+            print(f"Using GPUs: {gpu_ids}")
             text_encoder = text_encoder.cuda()
             image_encoder = image_encoder.cuda()
-            netG.cuda()
+            if len(gpu_ids) > 1:
+                netG = nn.DataParallel(netG, device_ids=gpu_ids)
+                for i in range(len(netsD)):
+                    netsD[i] = nn.DataParallel(netsD[i], device_ids=gpu_ids)
+            netG = netG.cuda()
             for i in range(len(netsD)):
-                netsD[i].cuda()
+                netsD[i] = netsD[i].cuda()
         return [text_encoder, image_encoder, netG, netsD, epoch]
 
     def define_optimizers(self, netG, netsD):
@@ -158,15 +164,15 @@ class condGANTrainer(object):
     def save_model(self, netG, avg_param_G, netsD, epoch):
         backup_para = copy_G_params(netG)
         load_params(netG, avg_param_G)
-        torch.save(netG.state_dict(),
-            '%s/netG_epoch_%d.pth' % (self.model_dir, epoch))
+        g_state = netG.module.state_dict() if hasattr(netG, "module") else netG.state_dict()
+        torch.save(g_state, "%s/netG_epoch_%d.pth" % (self.model_dir, epoch))
         load_params(netG, backup_para)
-        #
         for i in range(len(netsD)):
             netD = netsD[i]
-            torch.save(netD.state_dict(),
-                '%s/netD%d.pth' % (self.model_dir, i))
-        print('Save G/Ds models.')
+            d_state = (
+                netD.module.state_dict() if hasattr(netD, "module") else netD.state_dict()
+            )
+            torch.save(d_state, "%s/netD%d.pth" % (self.model_dir, i))
 
     def set_requires_grad_value(self, models_list, brequires):
         for i in range(len(models_list)):
@@ -303,15 +309,13 @@ class condGANTrainer(object):
                 if gen_iterations % 1000 == 0:
                     backup_para = copy_G_params(netG)
                     load_params(netG, avg_param_G)
-                    self.save_img_results(netG, fixed_noise, sent_emb,
-                                          words_embs, mask, image_encoder,
-                                          captions, cap_lens, epoch, name='average')
+                    try:
+                        self.save_img_results(netG, fixed_noise, sent_emb,
+                                            words_embs, mask, image_encoder,
+                                            captions, cap_lens, epoch, name='average')
+                    except Exception as vis_err:
+                        print(f'[Visualization skipped at epoch {epoch}: {vis_err}]')
                     load_params(netG, backup_para)
-                    #
-                    # self.save_img_results(netG, fixed_noise, sent_emb,
-                    #                       words_embs, mask, image_encoder,
-                    #                       captions, cap_lens,
-                    #                       epoch, name='current')
             end_t = time.time()
 
             print('''[%d/%d][%d]
