@@ -116,12 +116,14 @@ class condGANTrainer(object):
             if cfg.TRAIN.B_NET_D:
                 Gname = cfg.TRAIN.NET_G
                 for i in range(len(netsD)):
-                    s_tmp = Gname[:Gname.rfind('/')]
-                    Dname = '%s/netD%d.pth' % (s_tmp, i)
-                    print('Load D from: ', Dname)
-                    state_dict = \
-                        torch.load(Dname, map_location=lambda storage, loc: storage)
-                    netsD[i].load_state_dict(state_dict)
+                    s_tmp = Gname[: Gname.rfind("/")]
+                    Dname = "%s/netD%d.pth" % (s_tmp, i)
+                    if os.path.exists(Dname):  # ← add this check
+                        print("Load D from: ", Dname)
+                        state_dict = torch.load(Dname, map_location=lambda storage, loc: storage)
+                        netsD[i].load_state_dict(state_dict)
+                    else:
+                        print(f"No D checkpoint found at {Dname}, using random init")
         # ########################################################### #
         if cfg.CUDA:
             gpu_ids = list(range(torch.cuda.device_count()))
