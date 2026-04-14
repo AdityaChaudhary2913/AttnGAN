@@ -106,13 +106,9 @@ class condGANTrainer(object):
                 torch.load(cfg.TRAIN.NET_G, map_location=lambda storage, loc: storage)
             netG.load_state_dict(state_dict)
             print('Load G from: ', cfg.TRAIN.NET_G)
-            istart = cfg.TRAIN.NET_G.rfind('epoch')
-            if istart != -1:
-                istart += len('epoch')
-                iend = cfg.TRAIN.NET_G.rfind('.')
-                epoch = int(cfg.TRAIN.NET_G[istart:iend]) + 1
-            else:
-                epoch = 0
+            import re
+            m = re.search(r'netG_epoch_(\d+).pth', cfg.TRAIN.NET_G)
+            epoch = int(m.group(1)) + 1 if m else 0
             if cfg.TRAIN.B_NET_D:
                 Gname = cfg.TRAIN.NET_G
                 for i in range(len(netsD)):
